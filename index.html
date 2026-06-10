@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="km">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ប្រព័ន្ធបង្កើតឯកសារ - @KhlomSarbot</title>
+    <link href="https://fonts.googleapis.com/css2?family=Kantumruuy+Pro:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        :root {
+            --bg-color: #e0e5ec;
+            --shadow-raised: 6px 6px 12px #a3b1c6, -6px -6px 12px #ffffff;
+            --shadow-pressed: inset 4px 4px 8px #a3b1c6, inset -4px -4px 8px #ffffff;
+            --main-accent: #6c5ce7;
+        }
+        body { background-color: var(--bg-color); font-family: 'Kantumruuy Pro', sans-serif; padding: 20px; }
+        .card { background-color: var(--bg-color); border-radius: 25px; padding: 25px; box-shadow: var(--shadow-raised); }
+        .btn { padding: 15px; border-radius: 12px; border: none; background: var(--bg-color); box-shadow: var(--shadow-raised); font-weight: bold; cursor: pointer; transition: 0.3s; }
+        .btn:active { box-shadow: var(--shadow-pressed); }
+        input { width: 100%; padding: 15px; border-radius: 12px; border: none; background: var(--bg-color); box-shadow: var(--shadow-pressed); outline: none; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+
+<div class="max-w-md mx-auto">
+    <div class="card">
+        <h2 class="text-center font-bold mb-4 text-xl"><i class="fas fa-file-pdf"></i> បង្កើតឯកសារ PDF</h2>
+        
+        <input type="text" id="doc-title" placeholder="បញ្ចូលឈ្មោះឯកសារ...">
+        
+        <input type="file" id="img-input" accept="image/*" multiple class="hidden" onchange="handleFiles(this.files)">
+        <button class="btn w-full mb-4" onclick="document.getElementById('img-input').click()">
+            <i class="fas fa-images"></i> ជ្រើសរើសរូបថត
+        </button>
+
+        <div id="img-list" class="grid grid-cols-3 gap-2 mb-4"></div>
+
+        <button class="btn w-full bg-[#6c5ce7] text-white" onclick="sendToTelegram()">
+            <i class="fas fa-paper-plane"></i> ផ្ញើចូល Telegram
+        </button>
+        <p class="text-center text-[10px] mt-4 text-gray-500">រក្សាសិទ្ធិដោយ @KhlomSarbot</p>
+    </div>
+</div>
+
+<div id="capture-area" class="fixed -top-[9999px] bg-white p-10 w-[210mm] min-h-[297mm] flex flex-col justify-between">
+    <div>
+        <h1 id="pdf-title-display" style="text-align:center; font-size: 24px; margin-bottom:20px;"></h1>
+        <div id="pdf-content"></div>
+    </div>
+    <div style="text-align: center; font-size: 14px; margin-top: 50px; color: #555; border-top: 1px solid #ccc; padding-top: 10px;">
+        រក្សាសិទ្ធិដោយ @KhlomSarbot
+    </div>
+</div>
+
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.ready();
+    const BOT_TOKEN = "8357461158:AAF01hj41pgjJy3J8xET3ynBxslIXZuNxUM";
+    let images = [];
+
+    function handleFiles(files) {
+        for (let file of files) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                images.push(e.target.result);
+                render();
+            };
+            reader.readAsDataURL(file);
+        }
+    }
+
+    function render() {
+        document.getElementById('img-list').innerHTML = images.map(src => 
+            `<img src="${src}" class="h-20 w-full object-cover rounded-lg shadow-md">`
+        ).join('');
+        document.getElementById('pdf-content').innerHTML = images.map(src => 
+            `<img src="${src}" style="width: 100%; margin-bottom: 20px;">`
+        ).join('');
+    }
+
+    async function sendToTelegram() {
+        let userId = 5010333081; 
+        if (tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) {
+            userId = tg.initDataUnsafe.user.id;
+        }
+
+        if(images.length === 0) return Swal.fire('សូមជ្រើសរើសរូបភាពសិន!');
+        
+        const title = document.getElementById('doc-title').value || "Document_" + new Date().getTime();
+        document.getElementById('pdf-title-display').innerText = title;
+        
+        Swal.fire({ title: 'កំពុងដំណើរការ...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+        const canvas = await html2canvas(document.getElementById('capture-area'), { scale: 1.5, useCORS: true });
+        const imgData = canvas.toDataURL('image/jpeg', 0.7);
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
+        const pdfBlob = pdf.output('blob');
+
+        const formData = new FormData();
+        formData.append('chat_id', userId);
+        formData.append('document', pdfBlob, title + ".pdf");
+        formData.append('caption', `✨ ឯកសារ "${title}" បានផ្ញើដោយជោគជ័យ!\nរក្សាសិទ្ធិដោយ @KhlomSarbot`);
+
+        fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.ok) {
+                Swal.fire('ជោគជ័យ!', 'ឯកសារត្រូវបានផ្ញើជូនរហ័សទាន់ចិត្ត!', 'success');
+            } else {
+                Swal.fire('Error', 'ផ្ញើមិនចេញ: ' + data.description, 'error');
+            }
+        })
+        .catch(err => {
+            Swal.fire('Error', 'មានបញ្ហាប្រព័ន្ធអ៊ិនធឺណិត!', 'error');
+        });
+    }
+</script>
+</body>
+</html>
+
