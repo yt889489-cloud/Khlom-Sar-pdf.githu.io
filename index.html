@@ -7,7 +7,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Kantumruuy+Pro:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -17,7 +16,6 @@
             --bg-color: #e0e5ec;
             --shadow-raised: 6px 6px 12px #a3b1c6, -6px -6px 12px #ffffff;
             --shadow-pressed: inset 4px 4px 8px #a3b1c6, inset -4px -4px 8px #ffffff;
-            --main-accent: #6c5ce7;
         }
         body { background-color: var(--bg-color); font-family: 'Kantumruuy Pro', sans-serif; padding: 20px; }
         .card { background-color: var(--bg-color); border-radius: 25px; padding: 25px; box-shadow: var(--shadow-raised); }
@@ -48,16 +46,6 @@
     </div>
 </div>
 
-<div id="capture-area" class="fixed -top-[9999px] bg-white p-10 w-[210mm] min-h-[297mm] flex flex-col justify-between">
-    <div>
-        <h1 id="pdf-title-display" style="text-align:center; font-size: 24px; margin-bottom:20px;"></h1>
-        <div id="pdf-content"></div>
-    </div>
-    <div style="text-align: center; font-size: 14px; margin-top: 50px; color: #555; border-top: 1px solid #ccc; padding-top: 10px;">
-        រក្សាសិទ្ធិដោយ @KhlomSarbot
-    </div>
-</div>
-
 <script>
     const tg = window.Telegram.WebApp;
     tg.ready();
@@ -76,12 +64,19 @@
     }
 
     function render() {
+        // បង្ហាញរូបភាពលើយកមក Preview លើ Viewport ធម្មតា
         document.getElementById('img-list').innerHTML = images.map(src => 
             `<img src="${src}" class="h-20 w-full object-cover rounded-lg shadow-md">`
         ).join('');
-        document.getElementById('pdf-content').innerHTML = images.map(src => 
-            `<img src="${src}" style="width: 100%; margin-bottom: 20px;">`
-        ).join('');
+    }
+
+    // មុខងារជំនួយសម្រាប់វាស់ទំហំរូបភាពពិតប្រាកដ (Width & Height) ដើម្បីកុំឲ្យរុញចូល PDF ទៅខូចទ្រង់ទ្រាយ
+    function getImageDimensions(src) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve({ width: img.width, height: img.height });
+            img.src = src;
+        });
     }
 
     async function sendToTelegram() {
@@ -93,16 +88,55 @@
         if(images.length === 0) return Swal.fire('សូមជ្រើសរើសរូបភាពសិន!');
         
         const title = document.getElementById('doc-title').value || "Document_" + new Date().getTime();
-        document.getElementById('pdf-title-display').innerText = title;
         
-        Swal.fire({ title: 'កំពុងដំណើរការ...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        Swal.fire({ title: 'កំពុងបង្កើត PDF...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
-        const canvas = await html2canvas(document.getElementById('capture-area'), { scale: 1.5, useCORS: true });
-        const imgData = canvas.toDataURL('image/jpeg', 0.7);
         const { jsPDF } = window.jspdf;
         const pdf = new jsPDF('p', 'mm', 'a4');
-        pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
+        
+        const pageWidth = 210; // ទទឹងទំព័រ A4 (mm)
+        const pageHeight = 297; // កម្ពស់ទំព័រ A4 (mm)
+        const margin = 10; // គម្លាតពីគែម (mm)
+        const maxImgWidth = pageWidth - (margin * 2);
+
+        // ដំណើរការគូររូបភាពម្តងមួយៗចូលទៅក្នុងទំព័រ PDF ផ្ទាល់
+        for (let i = 0; i < images.length; i++) {
+            if (i > 0) {
+                pdf.addPage(); // បង្កើតទំព័រថ្មីសម្រាប់រូបភាពបន្ទាប់ (រូបភាព១ សន្លឹក = ទំព័រA4 ១សន្លឹក)
+            }
+
+            // បន្ថែមចំណងជើងនៅទំព័រដំបូងគេបង្អស់
+            if (i === 0) {
+                pdf.setFont("Helvetica", "bold");
+                pdf.setFontSize(20);
+                pdf.text(title, pageWidth / 2, 20, { align: "center" });
+            }
+
+            try {
+                const dims = await getImageDimensions(images[i]);
+                // គណនាកម្ពស់រូបភាពឲ្យត្រូវសមាមាត្រ (Ratio) ជាមួយទទឹង A4 ដើម្បីកុំឲ្យរូបភាពទាញវែង ឬសំប៉ែត
+                const imgHeight = (dims.height * maxImgWidth) / dims.width;
+                
+                // កំណត់ទីតាំងគូររូបភាព (បើទំព័រទី១ គូរទាបជាងចំណងជើងបន្តិច)
+                const yPosition = (i === 0) ? 35 : margin;
+
+                // គូររូបភាពចូលទៅក្នុង PDF ដោយផ្ទាល់
+                pdf.addImage(images[i], 'JPEG', margin, yPosition, maxImgWidth, imgHeight);
+                
+                // បន្ថែម Footer រក្សាសិទ្ធិនៅខាងក្រោមទំព័រនីមួយៗ
+                pdf.setFontSize(10);
+                pdf.setTextColor(120, 120, 120);
+                pdf.text("រក្សាសិទ្ធិដោយ @KhlomSarbot", pageWidth / 2, pageHeight - 10, { align: "center" });
+                
+            } catch (error) {
+                console.error("Error adding image: ", error);
+            }
+        }
+
         const pdfBlob = pdf.output('blob');
+
+        // ផ្លាស់ប្តូរទៅជាផ្ញើទៅកាន់ Telegram
+        Swal.fire({ title: 'កំពុងផ្ញើទៅ Telegram...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
         const formData = new FormData();
         formData.append('chat_id', userId);
@@ -128,4 +162,3 @@
 </script>
 </body>
 </html>
-
